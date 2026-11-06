@@ -1,0 +1,130 @@
+// ThesisMate — single-user schema. No user, account or subscription tables by design.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// PostgreSQL (Supabase). DATABASE_URL = transaction pooler (port 6543, ?pgbouncer=true&connection_limit=1)
+// for the app; DIRECT_URL = session pooler / direct connection (port 5432) for `prisma db push`.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Folder {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now()) @map("created_at")
+  documents Document[]
+
+  @@map("folders")
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  filePath    String?  @map("file_path") // relative to STORAGE_DIR; null for text-only notes
+  fileType    String   @map("file_type") // docx | pdf | txt | note
+  content     String   @default("") // extracted / edited plain text (HTML for notes)
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  kind        String   @default("upload") // upload | formatted | note
+  sourceId    String?  @map("source_id") // for formatted outputs: the original document id
+  folderId    String?  @map("folder_id")
+  folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  paraphrases ParaphraseHistory[]
+  reports     SimilarityReport[]
+  versions    DocumentVersion[]
+  reviews     ReviewReport[]
+
+  @@index([updatedAt])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  documentId String   @map("document_id")
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String
+  note       String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([documentId, createdAt])
+  @@map("document_versions")
+}
+
+model ParaphraseHistory {
+  id              String    @id @default(cuid())
+  documentId      String?   @map("document_id")
+  document        Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  feature         String    @default("paraphrase") // paraphrase | rewrite | grammar
+  originalText    String    @map("original_text")
+  paraphrasedText String    @map("paraphrased_text")
+  mode            String
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("paraphrase_history")
+}
+
+model SimilarityReport {
+  id              String    @id @default(cuid())
+  documentId      String?   @map("document_id")
+  document        Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  title           String    @default("")
+  similarityScore Float     @map("similarity_score")
+  matchedPassages String    @map("matched_passages") // JSON
+  analysisScope   String    @map("analysis_scope") // internal | web | external
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("similarity_reports")
+}
+
+// Review Panel results (AI, costly to regenerate). Citation and writing checks are instant and not stored.
+model ReviewReport {
+  id         String    @id @default(cuid())
+  documentId String?   @map("document_id")
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  title      String    @default("")
+  decision   String    @default("")
+  data       String // JSON ReviewResult
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("review_reports")
+}
+
+model FormattingProfile {
+  id             String   @id @default(cuid())
+  universityName String   @map("university_name")
+  configuration  String // JSON, validated by lib/formatter/profile.ts
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("formatting_profiles")
+}
+
+model UsageLog {
+  id         String   @id @default(cuid())
+  feature    String
+  model      String
+  tokensUsed Int      @default(0) @map("tokens_used")
+  success    Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("usage_logs")
+}
+
+// Single row (id = 1) holding app preferences as JSON.
+model Setting {
+  id        Int      @id @default(1)
+  data      String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
